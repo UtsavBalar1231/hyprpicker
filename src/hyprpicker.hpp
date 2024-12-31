@@ -45,6 +45,7 @@ class CHyprpicker {
     bool                                        m_bNoZoom            = false;
     bool                                        m_bNoFractional      = false;
     bool                                        m_bDisableHexPreview = false;
+    bool                                        m_bOnlyShowMagnifier = false;
 
     bool                                        m_bRunning = true;
 

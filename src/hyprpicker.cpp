@@ -401,7 +401,10 @@ void CHyprpicker::renderSurface(CLayerSurface* pSurface, bool forceInactive) {
 
             cairo_scale(PCAIRO, 1, 1);
 
-            cairo_arc(PCAIRO, CLICKPOS.x, CLICKPOS.y, 105 / SCALEBUFS.x, 0, 2 * M_PI);
+            if (m_bOnlyShowMagnifier)
+                cairo_arc(PCAIRO, CLICKPOS.x, CLICKPOS.y, 210 / SCALEBUFS.x, 0, 2 * M_PI);
+            else
+                cairo_arc(PCAIRO, CLICKPOS.x, CLICKPOS.y, 105 / SCALEBUFS.x, 0, 2 * M_PI);
             cairo_clip(PCAIRO);
 
             cairo_fill(PCAIRO);
@@ -417,11 +420,17 @@ void CHyprpicker::renderSurface(CLayerSurface* pSurface, bool forceInactive) {
             cairo_matrix_t matrix;
             cairo_matrix_init_identity(&matrix);
             cairo_matrix_translate(&matrix, CLICKPOSBUF.x + 0.5f, CLICKPOSBUF.y + 0.5f);
-            cairo_matrix_scale(&matrix, 0.1f, 0.1f);
+            if (m_bOnlyShowMagnifier)
+                cairo_matrix_scale(&matrix, 0.25f, 0.25f);
+            else
+                cairo_matrix_scale(&matrix, 0.1f, 0.1f);
             cairo_matrix_translate(&matrix, -CLICKPOSBUF.x / SCALEBUFS.x - 0.5f, -CLICKPOSBUF.y / SCALEBUFS.y - 0.5f);
             cairo_pattern_set_matrix(PATTERN, &matrix);
             cairo_set_source(PCAIRO, PATTERN);
-            cairo_arc(PCAIRO, CLICKPOS.x, CLICKPOS.y, 100 / SCALEBUFS.x, 0, 2 * M_PI);
+            if (m_bOnlyShowMagnifier)
+                cairo_arc(PCAIRO, CLICKPOS.x, CLICKPOS.y, 200 / SCALEBUFS.x, 0, 2 * M_PI);
+            else
+                cairo_arc(PCAIRO, CLICKPOS.x, CLICKPOS.y, 100 / SCALEBUFS.x, 0, 2 * M_PI);
             cairo_clip(PCAIRO);
             cairo_paint(PCAIRO);
 
@@ -588,7 +597,10 @@ void CHyprpicker::initMouse() {
             }
         }
 
-        m_pCursorShapeDevice->sendSetShape(serial, WP_CURSOR_SHAPE_DEVICE_V1_SHAPE_CROSSHAIR);
+        if (m_bOnlyShowMagnifier)
+            m_pCursorShapeDevice->sendSetShape(serial, WP_CURSOR_SHAPE_DEVICE_V1_SHAPE_DEFAULT);
+        else
+            m_pCursorShapeDevice->sendSetShape(serial, WP_CURSOR_SHAPE_DEVICE_V1_SHAPE_CROSSHAIR);
     });
     m_pPointer->setLeave([this](CCWlPointer* r, uint32_t timeMs, wl_proxy* surf) {
         for (auto& ls : m_vLayerSurfaces) {
@@ -606,129 +618,130 @@ void CHyprpicker::initMouse() {
         markDirty();
     });
     m_pPointer->setButton([this](CCWlPointer* r, uint32_t serial, uint32_t time, uint32_t button, uint32_t button_state) {
-        auto fmax3 = [](float a, float b, float c) -> float { return (a > b && a > c) ? a : (b > c) ? b : c; };
-        auto fmin3 = [](float a, float b, float c) -> float { return (a < b && a < c) ? a : (b < c) ? b : c; };
+        if (!m_bOnlyShowMagnifier) {
+            auto fmax3 = [](float a, float b, float c) -> float { return (a > b && a > c) ? a : (b > c) ? b : c; };
+            auto fmin3 = [](float a, float b, float c) -> float { return (a < b && a < c) ? a : (b < c) ? b : c; };
 
-        // relative brightness of a color
-        // https://www.w3.org/TR/2008/REC-WCAG20-20081211/#relativeluminancedef
-        const auto FLUMI = [](const float& c) -> float { return c <= 0.03928 ? c / 12.92 : powf((c + 0.055) / 1.055, 2.4); };
+            // relative brightness of a color
+            // https://www.w3.org/TR/2008/REC-WCAG20-20081211/#relativeluminancedef
+            const auto FLUMI = [](const float& c) -> float { return c <= 0.03928 ? c / 12.92 : powf((c + 0.055) / 1.055, 2.4); };
 
-        // get the px and print it
-        const auto MOUSECOORDSABS = m_vLastCoords.floor() / m_pLastSurface->m_pMonitor->size;
-        const auto CLICKPOS       = MOUSECOORDSABS * m_pLastSurface->screenBuffer->pixelSize;
+            // get the px and print it
+            const auto MOUSECOORDSABS = m_vLastCoords.floor() / m_pLastSurface->m_pMonitor->size;
+            const auto CLICKPOS       = MOUSECOORDSABS * m_pLastSurface->screenBuffer->pixelSize;
 
-        const auto COL = getColorFromPixel(m_pLastSurface, CLICKPOS);
+            const auto COL = getColorFromPixel(m_pLastSurface, CLICKPOS);
 
-        // threshold: (lumi_white + 0.05) / (x + 0.05) == (x + 0.05) / (lumi_black + 0.05)
-        // https://www.w3.org/TR/2008/REC-WCAG20-20081211/#contrast-ratiodef
-        const uint8_t FG = 0.2126 * FLUMI(COL.r / 255.0f) + 0.7152 * FLUMI(COL.g / 255.0f) + 0.0722 * FLUMI(COL.b / 255.0f) > 0.17913 ? 0 : 255;
+            // threshold: (lumi_white + 0.05) / (x + 0.05) == (x + 0.05) / (lumi_black + 0.05)
+            // https://www.w3.org/TR/2008/REC-WCAG20-20081211/#contrast-ratiodef
+            const uint8_t FG = 0.2126 * FLUMI(COL.r / 255.0f) + 0.7152 * FLUMI(COL.g / 255.0f) + 0.0722 * FLUMI(COL.b / 255.0f) > 0.17913 ? 0 : 255;
 
-        switch (m_bSelectedOutputMode) {
-            case OUTPUT_CMYK: {
-                // http://www.codeproject.com/KB/applications/xcmyk.aspx
+            switch (m_bSelectedOutputMode) {
+                case OUTPUT_CMYK: {
+                    // http://www.codeproject.com/KB/applications/xcmyk.aspx
 
-                float r = 1 - COL.r / 255.0f, g = 1 - COL.g / 255.0f, b = 1 - COL.b / 255.0f;
-                float k = fmin3(r, g, b), K = (k == 1) ? 1 : 1 - k;
-                float c = (r - k) / K, m = (g - k) / K, y = (b - k) / K;
+                    float r = 1 - COL.r / 255.0f, g = 1 - COL.g / 255.0f, b = 1 - COL.b / 255.0f;
+                    float k = fmin3(r, g, b), K = (k == 1) ? 1 : 1 - k;
+                    float c = (r - k) / K, m = (g - k) / K, y = (b - k) / K;
 
-                c = std::round(c * 100);
-                m = std::round(m * 100);
-                y = std::round(y * 100);
-                k = std::round(k * 100);
+                    c = std::round(c * 100);
+                    m = std::round(m * 100);
+                    y = std::round(y * 100);
+                    k = std::round(k * 100);
 
-                if (m_bFancyOutput)
-                    Debug::log(NONE, "\033[38;2;%i;%i;%i;48;2;%i;%i;%im%g%% %g%% %g%% %g%%\033[0m", FG, FG, FG, COL.r, COL.g, COL.b, c, m, y, k);
-                else
-                    Debug::log(NONE, "%g%% %g%% %g%% %g%%", c, m, y, k);
+                    if (m_bFancyOutput)
+                        Debug::log(NONE, "\033[38;2;%i;%i;%i;48;2;%i;%i;%im%g%% %g%% %g%% %g%%\033[0m", FG, FG, FG, COL.r, COL.g, COL.b, c, m, y, k);
+                    else
+                        Debug::log(NONE, "%g%% %g%% %g%% %g%%", c, m, y, k);
 
-                if (m_bAutoCopy)
-                    Clipboard::copy("%g%% %g%% %g%% %g%%", c, m, y, k);
-                finish();
-                break;
-            }
-            case OUTPUT_HEX: {
-                auto toHex = [](int i) -> std::string {
-                    const char* DS = "0123456789ABCDEF";
-
-                    std::string result = "";
-
-                    result += DS[i / 16];
-                    result += DS[i % 16];
-
-                    return result;
-                };
-
-                if (m_bFancyOutput)
-                    Debug::log(NONE, "\033[38;2;%i;%i;%i;48;2;%i;%i;%im#%s%s%s\033[0m", FG, FG, FG, COL.r, COL.g, COL.b, toHex(COL.r).c_str(), toHex(COL.g).c_str(),
-                               toHex(COL.b).c_str());
-                else
-                    Debug::log(NONE, "#%s%s%s", toHex(COL.r).c_str(), toHex(COL.g).c_str(), toHex(COL.b).c_str());
-
-                if (m_bAutoCopy)
-                    Clipboard::copy("#%s%s%s", toHex(COL.r).c_str(), toHex(COL.g).c_str(), toHex(COL.b).c_str());
-                finish();
-                break;
-            }
-            case OUTPUT_RGB: {
-                if (m_bFancyOutput)
-                    Debug::log(NONE, "\033[38;2;%i;%i;%i;48;2;%i;%i;%im%i %i %i\033[0m", FG, FG, FG, COL.r, COL.g, COL.b, COL.r, COL.g, COL.b);
-                else
-                    Debug::log(NONE, "%i %i %i", COL.r, COL.g, COL.b);
-
-                if (m_bAutoCopy)
-                    Clipboard::copy("%i %i %i", COL.r, COL.g, COL.b);
-                finish();
-                break;
-            }
-            case OUTPUT_HSL:
-            case OUTPUT_HSV: {
-                // https://en.wikipedia.org/wiki/HSL_and_HSV#From_RGB
-
-                auto floatEq = [](float a, float b) -> bool {
-                    return std::nextafter(a, std::numeric_limits<double>::lowest()) <= b && std::nextafter(a, std::numeric_limits<double>::max()) >= b;
-                };
-
-                float h, s, l, v;
-                float r = COL.r / 255.0f, g = COL.g / 255.0f, b = COL.b / 255.0f;
-                float max = fmax3(r, g, b), min = fmin3(r, g, b);
-                float c = max - min;
-
-                v = max;
-                if (c == 0)
-                    h = 0;
-                else if (v == r)
-                    h = 60 * (0 + (g - b) / c);
-                else if (v == g)
-                    h = 60 * (2 + (b - r) / c);
-                else /* v == b */
-                    h = 60 * (4 + (r - g) / c);
-
-                float l_or_v;
-                if (m_bSelectedOutputMode == OUTPUT_HSL) {
-                    l      = (max + min) / 2;
-                    s      = (floatEq(l, 0.0f) || floatEq(l, 1.0f)) ? 0 : (v - l) / std::min(l, 1 - l);
-                    l_or_v = std::round(l * 100);
-                } else {
-                    v      = max;
-                    s      = floatEq(v, 0.0f) ? 0 : c / v;
-                    l_or_v = std::round(v * 100);
+                    if (m_bAutoCopy)
+                        Clipboard::copy("%g%% %g%% %g%% %g%%", c, m, y, k);
+                    finish();
+                    break;
                 }
+                case OUTPUT_HEX: {
+                    auto toHex = [](int i) -> std::string {
+                        const char* DS = "0123456789ABCDEF";
 
-                h = std::round(h);
-                s = std::round(s * 100);
+                        std::string result = "";
 
-                if (m_bFancyOutput)
-                    Debug::log(NONE, "\033[38;2;%i;%i;%i;48;2;%i;%i;%im%g %g%% %g%%\033[0m", FG, FG, FG, COL.r, COL.g, COL.b, h, s, l_or_v);
-                else
-                    Debug::log(NONE, "%g %g%% %g%%", h, s, l_or_v);
+                        result += DS[i / 16];
+                        result += DS[i % 16];
 
-                if (m_bAutoCopy)
-                    Clipboard::copy("%g %g%% %g%%", h, s, l_or_v);
-                finish();
-                break;
+                        return result;
+                    };
+
+                    if (m_bFancyOutput)
+                        Debug::log(NONE, "\033[38;2;%i;%i;%i;48;2;%i;%i;%im#%s%s%s\033[0m", FG, FG, FG, COL.r, COL.g, COL.b, toHex(COL.r).c_str(), toHex(COL.g).c_str(),
+                                   toHex(COL.b).c_str());
+                    else
+                        Debug::log(NONE, "#%s%s%s", toHex(COL.r).c_str(), toHex(COL.g).c_str(), toHex(COL.b).c_str());
+
+                    if (m_bAutoCopy)
+                        Clipboard::copy("#%s%s%s", toHex(COL.r).c_str(), toHex(COL.g).c_str(), toHex(COL.b).c_str());
+                    finish();
+                    break;
+                }
+                case OUTPUT_RGB: {
+                    if (m_bFancyOutput)
+                        Debug::log(NONE, "\033[38;2;%i;%i;%i;48;2;%i;%i;%im%i %i %i\033[0m", FG, FG, FG, COL.r, COL.g, COL.b, COL.r, COL.g, COL.b);
+                    else
+                        Debug::log(NONE, "%i %i %i", COL.r, COL.g, COL.b);
+
+                    if (m_bAutoCopy)
+                        Clipboard::copy("%i %i %i", COL.r, COL.g, COL.b);
+                    finish();
+                    break;
+                }
+                case OUTPUT_HSL:
+                case OUTPUT_HSV: {
+                    // https://en.wikipedia.org/wiki/HSL_and_HSV#From_RGB
+
+                    auto floatEq = [](float a, float b) -> bool {
+                        return std::nextafter(a, std::numeric_limits<double>::lowest()) <= b && std::nextafter(a, std::numeric_limits<double>::max()) >= b;
+                    };
+
+                    float h, s, l, v;
+                    float r = COL.r / 255.0f, g = COL.g / 255.0f, b = COL.b / 255.0f;
+                    float max = fmax3(r, g, b), min = fmin3(r, g, b);
+                    float c = max - min;
+
+                    v = max;
+                    if (c == 0)
+                        h = 0;
+                    else if (v == r)
+                        h = 60 * (0 + (g - b) / c);
+                    else if (v == g)
+                        h = 60 * (2 + (b - r) / c);
+                    else /* v == b */
+                        h = 60 * (4 + (r - g) / c);
+
+                    float l_or_v;
+                    if (m_bSelectedOutputMode == OUTPUT_HSL) {
+                        l      = (max + min) / 2;
+                        s      = (floatEq(l, 0.0f) || floatEq(l, 1.0f)) ? 0 : (v - l) / std::min(l, 1 - l);
+                        l_or_v = std::round(l * 100);
+                    } else {
+                        v      = max;
+                        s      = floatEq(v, 0.0f) ? 0 : c / v;
+                        l_or_v = std::round(v * 100);
+                    }
+
+                    h = std::round(h);
+                    s = std::round(s * 100);
+
+                    if (m_bFancyOutput)
+                        Debug::log(NONE, "\033[38;2;%i;%i;%i;48;2;%i;%i;%im%g %g%% %g%%\033[0m", FG, FG, FG, COL.r, COL.g, COL.b, h, s, l_or_v);
+                    else
+                        Debug::log(NONE, "%g %g%% %g%%", h, s, l_or_v);
+
+                    if (m_bAutoCopy)
+                        Clipboard::copy("%g %g%% %g%%", h, s, l_or_v);
+                    finish();
+                    break;
+                }
             }
         }
-
         finish();
     });
 }

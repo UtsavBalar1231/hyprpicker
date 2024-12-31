@@ -16,6 +16,7 @@ static void help(void) {
               << " -v | --verbose             | Enable more logs\n"
               << " -t | --no-fractional       | Disable fractional scaling support\n"
               << " -d | --disable-hex-preview | Disable live preview of Hex code\n"
+              << " -Z | --show-only-magnifier | Only Show the Magnifier\n"
               << " -V | --version             | Print version info\n";
 }
 
@@ -34,10 +35,11 @@ int main(int argc, char** argv, char** envp) {
                                                {"quiet", no_argument, NULL, 'q'},
                                                {"verbose", no_argument, NULL, 'v'},
                                                {"disable-hex-preview", no_argument, NULL, 'd'},
+                                               {"show-only-magnifier", no_argument, NULL, 'Z'},
                                                {"version", no_argument, NULL, 'V'},
                                                {NULL, 0, NULL, 0}};
 
-        int                  c = getopt_long(argc, argv, ":f:hnarzqvtdV", long_options, &option_index);
+        int                  c = getopt_long(argc, argv, ":f:hnarzqvtdZV", long_options, &option_index);
         if (c == -1)
             break;
 
@@ -67,6 +69,12 @@ int main(int argc, char** argv, char** envp) {
             case 'q': Debug::quiet = true; break;
             case 'v': Debug::verbose = true; break;
             case 'd': g_pHyprpicker->m_bDisableHexPreview = true; break;
+            case 'Z': {
+                g_pHyprpicker->m_bDisableHexPreview = true;
+                g_pHyprpicker->m_bNoZoom            = false;
+                g_pHyprpicker->m_bOnlyShowMagnifier = true;
+                break;
+            }
             case 'V': {
                 std::cout << "hyprpicker v" << HYPRPICKER_VERSION << "\n";
                 exit(0);
